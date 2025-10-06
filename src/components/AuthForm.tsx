@@ -22,16 +22,21 @@ export const AuthForm = () => {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         
         if (error) throw error;
-        toast.success("Welcome back!");
-        navigate("/");
+        
+        // Wait for session to be established before navigating
+        if (data.session) {
+          toast.success("Welcome back!");
+          // Small delay to ensure state is updated
+          setTimeout(() => navigate("/"), 100);
+        }
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -43,8 +48,12 @@ export const AuthForm = () => {
         });
         
         if (error) throw error;
-        toast.success("Account created! Welcome to PhotoVault");
-        navigate("/");
+        
+        // Wait for session to be established before navigating
+        if (data.session) {
+          toast.success("Account created! Welcome to PhotoVault");
+          setTimeout(() => navigate("/"), 100);
+        }
       }
     } catch (error: any) {
       toast.error(error.message || "An error occurred");

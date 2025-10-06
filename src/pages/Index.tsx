@@ -11,29 +11,35 @@ import { toast } from "sonner";
 const Index = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(false);
     });
 
+    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (user === null && session === null) {
+    // Only redirect if we're done loading and there's definitely no session
+    if (!loading && !session && !user) {
       navigate("/auth");
     }
-  }, [user, session, navigate]);
+  }, [loading, user, session, navigate]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -44,6 +50,18 @@ const Index = () => {
   const handleUploadComplete = () => {
     setRefreshTrigger(prev => prev + 1);
   };
+
+  // Show loading state while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Camera className="h-12 w-12 text-primary mx-auto mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return null;
