@@ -6,7 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Upload, X, Loader2 } from "lucide-react";
+import { Upload, X, Loader2, Shield } from "lucide-react";
+import { useEncryption } from "@/hooks/useEncryption";
+import { encryptFile, createEncryptedBlob } from "@/lib/encryption";
 
 interface PhotoUploadProps {
   open: boolean;
@@ -20,6 +22,7 @@ export const PhotoUpload = ({ open, onOpenChange, onUploadComplete }: PhotoUploa
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const { encryptionKey, isEncryptionReady } = useEncryption();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -44,18 +47,27 @@ export const PhotoUpload = ({ open, onOpenChange, onUploadComplete }: PhotoUploa
       return;
     }
 
+    if (!encryptionKey) {
+      toast.error("Encryption not set up");
+      return;
+    }
+
     setUploading(true);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const fileExt = file.name.split(".").pop();
+      // Encrypt the file before upload
+      const { encryptedData, iv } = await encryptFile(file, encryptionKey);
+      const encryptedBlob = createEncryptedBlob(encryptedData, iv);
+
+      const fileExt = "encrypted";
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("photos")
-        .upload(fileName, file);
+        .upload(fileName, encryptedBlob);
 
       if (uploadError) throw uploadError;
 
@@ -75,7 +87,7 @@ export const PhotoUpload = ({ open, onOpenChange, onUploadComplete }: PhotoUploa
 
       if (dbError) throw dbError;
 
-      toast.success("Photo uploaded successfully!");
+      toast.success("Photo encrypted and uploaded successfully!");
       onUploadComplete();
       onOpenChange(false);
       
@@ -96,9 +108,12 @@ export const PhotoUpload = ({ open, onOpenChange, onUploadComplete }: PhotoUploa
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] bg-card border-border">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Upload Photo</DialogTitle>
+          <DialogTitle className="text-2xl flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Upload Photo
+          </DialogTitle>
           <DialogDescription>
-            Share your memories with a beautiful photo
+            Your photo will be encrypted before upload
           </DialogDescription>
         </DialogHeader>
 

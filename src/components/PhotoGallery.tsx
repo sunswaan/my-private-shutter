@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
+import { useEncryption } from "@/hooks/useEncryption";
+import { extractFromBlob, decryptData } from "@/lib/encryption";
 
 interface Photo {
   id: string;
@@ -24,6 +26,39 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
   const [loading, setLoading] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [decryptedImages, setDecryptedImages] = useState<Map<string, string>>(new Map());
+  const [decrypting, setDecrypting] = useState<Set<string>>(new Set());
+  const { encryptionKey } = useEncryption();
+
+  const decryptPhoto = async (photo: Photo) => {
+    if (!encryptionKey || decryptedImages.has(photo.id) || decrypting.has(photo.id)) {
+      return;
+    }
+
+    setDecrypting(prev => new Set(prev).add(photo.id));
+
+    try {
+      const response = await fetch(photo.url);
+      const blob = await response.blob();
+      
+      const { iv, encryptedData } = await extractFromBlob(blob);
+      const decryptedData = await decryptData(encryptedData, iv, encryptionKey);
+      
+      const decryptedBlob = new Blob([decryptedData]);
+      const objectUrl = URL.createObjectURL(decryptedBlob);
+      
+      setDecryptedImages(prev => new Map(prev).set(photo.id, objectUrl));
+    } catch (error) {
+      console.error("Decryption error:", error);
+      toast.error("Failed to decrypt photo");
+    } finally {
+      setDecrypting(prev => {
+        const next = new Set(prev);
+        next.delete(photo.id);
+        return next;
+      });
+    }
+  };
 
   const fetchPhotos = async () => {
     try {
@@ -38,6 +73,11 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
 
       if (error) throw error;
       setPhotos(data || []);
+      
+      // Start decrypting photos
+      if (encryptionKey && data) {
+        data.forEach(photo => decryptPhoto(photo));
+      }
     } catch (error: any) {
       console.error("Error fetching photos:", error);
       toast.error("Failed to load photos");
@@ -79,6 +119,13 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
     fetchPhotos();
   }, [refreshTrigger]);
 
+  useEffect(() => {
+    // Decrypt photos when encryption key becomes available
+    if (encryptionKey && photos.length > 0) {
+      photos.forEach(photo => decryptPhoto(photo));
+    }
+  }, [encryptionKey, photos]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -98,37 +145,58 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {photos.map((photo) => (
-          <Card
-            key={photo.id}
-            className="group overflow-hidden cursor-pointer bg-card border-border hover:shadow-[var(--shadow-elegant)] transition-all duration-300 hover:scale-[1.02]"
-            onClick={() => setSelectedPhoto(photo)}
-          >
-            <div className="aspect-square overflow-hidden">
-              <img
-                src={photo.url}
-                alt={photo.title || "Photo"}
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-              />
-            </div>
-            {photo.title && (
-              <div className="p-3 bg-card/95 backdrop-blur-sm">
-                <h3 className="font-medium truncate text-foreground">{photo.title}</h3>
+        {photos.map((photo) => {
+          const decryptedUrl = decryptedImages.get(photo.id);
+          const isDecrypting = decrypting.has(photo.id);
+          
+          return (
+            <Card
+              key={photo.id}
+              className="group overflow-hidden cursor-pointer bg-card border-border hover:shadow-[var(--shadow-elegant)] transition-all duration-300 hover:scale-[1.02]"
+              onClick={() => setSelectedPhoto(photo)}
+            >
+              <div className="aspect-square overflow-hidden relative">
+                {isDecrypting ? (
+                  <div className="w-full h-full flex items-center justify-center bg-secondary/20">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : decryptedUrl ? (
+                  <img
+                    src={decryptedUrl}
+                    alt={photo.title || "Photo"}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-secondary/20">
+                    <Shield className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
               </div>
-            )}
-          </Card>
-        ))}
+              {photo.title && (
+                <div className="p-3 bg-card/95 backdrop-blur-sm">
+                  <h3 className="font-medium truncate text-foreground">{photo.title}</h3>
+                </div>
+              )}
+            </Card>
+          );
+        })}
       </div>
 
       <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
         <DialogContent className="max-w-4xl bg-background/95 backdrop-blur-xl border-border p-0 overflow-hidden">
           {selectedPhoto && (
             <div className="relative">
-              <img
-                src={selectedPhoto.url}
-                alt={selectedPhoto.title || "Photo"}
-                className="w-full max-h-[80vh] object-contain"
-              />
+              {decryptedImages.get(selectedPhoto.id) ? (
+                <img
+                  src={decryptedImages.get(selectedPhoto.id)}
+                  alt={selectedPhoto.title || "Photo"}
+                  className="w-full max-h-[80vh] object-contain"
+                />
+              ) : (
+                <div className="w-full h-[60vh] flex items-center justify-center bg-secondary/20">
+                  <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                </div>
+              )}
               <div className="absolute top-4 right-4">
                 <Button
                   variant="destructive"

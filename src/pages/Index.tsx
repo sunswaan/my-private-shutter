@@ -5,8 +5,10 @@ import { User, Session } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { PhotoUpload } from "@/components/PhotoUpload";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { EncryptionSetup } from "@/components/EncryptionSetup";
 import { Camera, LogOut, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { useEncryption } from "@/hooks/useEncryption";
 
 const Index = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -15,6 +17,7 @@ const Index = () => {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const navigate = useNavigate();
+  const { isEncryptionReady } = useEncryption();
 
   useEffect(() => {
     // Set up auth state listener FIRST
@@ -65,6 +68,11 @@ const Index = () => {
 
   if (!user) {
     return null;
+  }
+
+  // Show encryption setup if not ready
+  if (!isEncryptionReady) {
+    return <EncryptionSetup />;
   }
 
   return (
