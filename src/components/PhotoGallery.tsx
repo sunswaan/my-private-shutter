@@ -119,6 +119,30 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
     fetchPhotos();
   }, [refreshTrigger]);
 
+  // Real-time synchronization across devices
+  useEffect(() => {
+    const channel = supabase
+      .channel('photos-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'photos'
+        },
+        (payload) => {
+          console.log('Photo change detected:', payload);
+          // Refresh photos when any change occurs
+          fetchPhotos();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   useEffect(() => {
     // Decrypt photos when encryption key becomes available
     if (encryptionKey && photos.length > 0) {
