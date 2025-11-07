@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Loader2, Trash2, Shield } from "lucide-react";
+import { Loader2, Trash2, Shield, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { useEncryption } from "@/hooks/useEncryption";
 import { extractFromBlob, decryptData } from "@/lib/encryption";
 import { PhotoViewer } from "./PhotoViewer";
+import { ImageEditor } from "./ImageEditor";
 
 interface Photo {
   id: string;
@@ -26,6 +27,7 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [decryptedImages, setDecryptedImages] = useState<Map<string, string>>(new Map());
   const [decrypting, setDecrypting] = useState<Set<string>>(new Set());
@@ -223,7 +225,7 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
                 </div>
               )}
               
-              {/* Photo Info and Delete Button */}
+              {/* Photo Info and Action Buttons */}
               {decryptedImages.get(selectedPhoto.id) && (
                 <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background/80 to-transparent">
                   <div className="flex items-start justify-between gap-4">
@@ -238,23 +240,49 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
                         {new Date(selectedPhoto.created_at).toLocaleDateString()}
                       </p>
                     </div>
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      onClick={handleDelete}
-                      disabled={deleting}
-                      className="shadow-lg"
-                    >
-                      {deleting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="default"
+                        size="icon"
+                        onClick={() => {
+                          setEditingPhoto(selectedPhoto);
+                          setSelectedPhoto(null);
+                        }}
+                        className="shadow-lg"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={handleDelete}
+                        disabled={deleting}
+                        className="shadow-lg"
+                      >
+                        {deleting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Editor Dialog */}
+      <Dialog open={!!editingPhoto} onOpenChange={() => setEditingPhoto(null)}>
+        <DialogContent className="max-w-full h-screen p-0 bg-background border-0 m-0">
+          {editingPhoto && decryptedImages.get(editingPhoto.id) && (
+            <ImageEditor
+              imageUrl={decryptedImages.get(editingPhoto.id)!}
+              alt={editingPhoto.title || "Photo"}
+              onClose={() => setEditingPhoto(null)}
+            />
           )}
         </DialogContent>
       </Dialog>
