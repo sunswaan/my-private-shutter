@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { useEncryption } from "@/hooks/useEncryption";
 import { extractFromBlob, decryptData } from "@/lib/encryption";
+import { PhotoViewer } from "./PhotoViewer";
 
 interface Photo {
   id: string;
@@ -207,49 +208,53 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
       </div>
 
       <Dialog open={!!selectedPhoto} onOpenChange={() => setSelectedPhoto(null)}>
-        <DialogContent className="max-w-4xl bg-background/95 backdrop-blur-xl border-border p-0 overflow-hidden">
+        <DialogContent className="max-w-7xl bg-background border-border p-0 overflow-hidden">
           {selectedPhoto && (
-            <div className="relative">
+            <>
               {decryptedImages.get(selectedPhoto.id) ? (
-                <img
-                  src={decryptedImages.get(selectedPhoto.id)}
+                <PhotoViewer
+                  imageUrl={decryptedImages.get(selectedPhoto.id)!}
                   alt={selectedPhoto.title || "Photo"}
-                  className="w-full max-h-[80vh] object-contain"
+                  onClose={() => setSelectedPhoto(null)}
                 />
               ) : (
                 <div className="w-full h-[60vh] flex items-center justify-center bg-secondary/20">
                   <Loader2 className="h-12 w-12 animate-spin text-primary" />
                 </div>
               )}
-              <div className="absolute top-4 right-4">
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="shadow-lg"
-                >
-                  {deleting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              {(selectedPhoto.title || selectedPhoto.description) && (
-                <div className="p-6 bg-gradient-to-t from-background to-transparent">
-                  {selectedPhoto.title && (
-                    <h2 className="text-2xl font-bold mb-2 text-foreground">{selectedPhoto.title}</h2>
-                  )}
-                  {selectedPhoto.description && (
-                    <p className="text-muted-foreground">{selectedPhoto.description}</p>
-                  )}
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {new Date(selectedPhoto.created_at).toLocaleDateString()}
-                  </p>
+              
+              {/* Photo Info and Delete Button */}
+              {decryptedImages.get(selectedPhoto.id) && (
+                <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background/80 to-transparent">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      {selectedPhoto.title && (
+                        <h2 className="text-2xl font-bold mb-2 text-foreground">{selectedPhoto.title}</h2>
+                      )}
+                      {selectedPhoto.description && (
+                        <p className="text-muted-foreground">{selectedPhoto.description}</p>
+                      )}
+                      <p className="text-sm text-muted-foreground mt-2">
+                        {new Date(selectedPhoto.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      className="shadow-lg"
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
