@@ -3,10 +3,14 @@ import { Button } from "./ui/button";
 import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Card } from "./ui/card";
-import { X, Download, RotateCcw, Eraser } from "lucide-react";
+import { X, Download, RotateCcw, Eraser, Save, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { pipeline, env } from '@huggingface/transformers';
+import { supabase } from "@/integrations/supabase/client";
+import { VersionHistory } from "./VersionHistory";
+import { encryptFile, createEncryptedBlob } from "@/lib/encryption";
+import { useEncryption } from "@/hooks/useEncryption";
 
 // Configure transformers.js
 env.allowLocalModels = false;
@@ -15,6 +19,7 @@ env.useBrowserCache = false;
 const MAX_IMAGE_DIMENSION = 1024;
 
 interface ImageEditorProps {
+  photoId: string;
   imageUrl: string;
   alt: string;
   onClose: () => void;
@@ -61,7 +66,7 @@ const filterPresets = {
   },
 };
 
-export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
+export const ImageEditor = ({ photoId, imageUrl, alt, onClose }: ImageEditorProps) => {
   const [selectedFilter, setSelectedFilter] = useState<keyof typeof filterPresets>("none");
   const [adjustments, setAdjustments] = useState<Adjustments>({
     exposure: 0,
@@ -74,6 +79,9 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
     vibrance: 0,
   });
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const { encryptionKey } = useEncryption();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -292,6 +300,93 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
     setAdjustments((prev) => ({ ...prev, [key]: value[0] }));
   };
 
+  const saveVersion = async () => {
+    if (!canvasRef.current || !encryptionKey) {
+      toast.error("Unable to save version");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // Get the next version number
+      const { data: existingVersions } = await supabase
+        .from("photo_versions")
+        .select("version_number")
+        .eq("photo_id", photoId)
+        .order("version_number", { ascending: false })
+        .limit(1);
+
+      const nextVersionNumber = existingVersions && existingVersions.length > 0
+        ? existingVersions[0].version_number + 1
+        : 1;
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob>((resolve) => {
+        canvasRef.current!.toBlob((b) => resolve(b!), "image/png");
+      });
+
+      // Convert blob to file for encryption
+      const file = new File([blob], `version-${nextVersionNumber}.png`, { type: "image/png" });
+
+      // Encrypt the file
+      const { encryptedData, iv } = await encryptFile(file, encryptionKey);
+      const encryptedBlob = createEncryptedBlob(encryptedData, iv);
+
+      // Upload to storage
+      const storagePath = `${user.id}/versions/${photoId}-v${nextVersionNumber}-${Date.now()}.enc`;
+      const { error: uploadError } = await supabase.storage
+        .from("photos")
+        .upload(storagePath, encryptedBlob);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from("photos")
+        .getPublicUrl(storagePath);
+
+      // Save version record
+      const { error: dbError } = await supabase
+        .from("photo_versions")
+        .insert({
+          photo_id: photoId,
+          user_id: user.id,
+          version_number: nextVersionNumber,
+          storage_path: storagePath,
+          url: publicUrl,
+          edit_metadata: {
+            filter: selectedFilter,
+            adjustments
+          }
+        } as any);
+
+      if (dbError) throw dbError;
+
+      toast.success("Version saved successfully!");
+    } catch (error: any) {
+      console.error("Save version error:", error);
+      toast.error("Failed to save version");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const restoreVersion = (version: any) => {
+    if (version.edit_metadata) {
+      const metadata = version.edit_metadata;
+      if (metadata.filter) {
+        setSelectedFilter(metadata.filter);
+      }
+      if (metadata.adjustments) {
+        setAdjustments(metadata.adjustments);
+      }
+      toast.success("Version restored!");
+    }
+  };
+
   return (
     <div className="relative bg-background h-screen flex flex-col">
       {/* Hidden image for loading */}
@@ -308,6 +403,23 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
       <div className="flex items-center justify-between p-4 border-b border-border bg-card">
         <h2 className="text-xl font-bold text-foreground">Image Editor</h2>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowVersionHistory(!showVersionHistory)}
+          >
+            <History className="h-4 w-4 mr-2" />
+            History
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={saveVersion}
+            disabled={isSaving}
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {isSaving ? "Saving..." : "Save Version"}
+          </Button>
           <Button 
             variant="outline" 
             size="sm" 
@@ -332,7 +444,15 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
+        {/* Version History Sidebar */}
+        {showVersionHistory && (
+          <div className="w-80 border-r border-border bg-card overflow-y-auto p-4">
+            <h3 className="text-lg font-semibold mb-4 text-foreground">Version History</h3>
+            <VersionHistory photoId={photoId} onRestore={restoreVersion} />
+          </div>
+        )}
+
+        {/* Edit Controls Sidebar */}
         <div className="w-80 border-r border-border bg-card overflow-y-auto">
           <Tabs defaultValue="filters" className="w-full">
             <TabsList className="w-full grid grid-cols-2 bg-secondary">

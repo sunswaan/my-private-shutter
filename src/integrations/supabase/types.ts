@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      photo_versions: {
+        Row: {
+          created_at: string
+          edit_metadata: Json | null
+          id: string
+          photo_id: string
+          storage_path: string
+          url: string
+          user_id: string
+          version_number: number
+        }
+        Insert: {
+          created_at?: string
+          edit_metadata?: Json | null
+          id?: string
+          photo_id: string
+          storage_path: string
+          url: string
+          user_id: string
+          version_number: number
+        }
+        Update: {
+          created_at?: string
+          edit_metadata?: Json | null
+          id?: string
+          photo_id?: string
+          storage_path?: string
+          url?: string
+          user_id?: string
+          version_number?: number
+        }
+        Relationships: []
+      }
       photos: {
         Row: {
           created_at: string
