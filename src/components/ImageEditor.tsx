@@ -3,9 +3,16 @@ import { Button } from "./ui/button";
 import { Slider } from "./ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Card } from "./ui/card";
-import { X, Download, RotateCcw } from "lucide-react";
+import { X, Download, RotateCcw, Eraser } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { pipeline, env } from '@huggingface/transformers';
+
+// Configure transformers.js
+env.allowLocalModels = false;
+env.useBrowserCache = false;
+
+const MAX_IMAGE_DIMENSION = 1024;
 
 interface ImageEditorProps {
   imageUrl: string;
@@ -66,6 +73,7 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
     shadows: 0,
     vibrance: 0,
   });
+  const [isRemovingBackground, setIsRemovingBackground] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -205,6 +213,81 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
     }, "image/png");
   };
 
+  const removeBackground = async () => {
+    if (!canvasRef.current || !imageRef.current) return;
+    
+    setIsRemovingBackground(true);
+    toast.info("Removing background... This may take a moment.");
+    
+    try {
+      const segmenter = await pipeline('image-segmentation', 'Xenova/segformer-b0-finetuned-ade-512-512', {
+        device: 'webgpu',
+      });
+      
+      // Create temporary canvas to resize image if needed
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) throw new Error('Could not get canvas context');
+      
+      const img = imageRef.current;
+      let width = img.naturalWidth;
+      let height = img.naturalHeight;
+      
+      // Resize if needed
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        if (width > height) {
+          height = Math.round((height * MAX_IMAGE_DIMENSION) / width);
+          width = MAX_IMAGE_DIMENSION;
+        } else {
+          width = Math.round((width * MAX_IMAGE_DIMENSION) / height);
+          height = MAX_IMAGE_DIMENSION;
+        }
+      }
+      
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      tempCtx.drawImage(img, 0, 0, width, height);
+      
+      // Get image data
+      const imageData = tempCanvas.toDataURL('image/jpeg', 0.8);
+      
+      // Process with segmentation
+      const result = await segmenter(imageData);
+      
+      if (!result || !Array.isArray(result) || result.length === 0 || !result[0].mask) {
+        throw new Error('Invalid segmentation result');
+      }
+      
+      // Apply mask to original canvas
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get canvas context');
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const outputImageData = ctx.getImageData(0, 0, width, height);
+      const data = outputImageData.data;
+      
+      // Apply inverted mask to alpha channel
+      for (let i = 0; i < result[0].mask.data.length; i++) {
+        const alpha = Math.round((1 - result[0].mask.data[i]) * 255);
+        data[i * 4 + 3] = alpha;
+      }
+      
+      ctx.putImageData(outputImageData, 0, 0);
+      
+      toast.success("Background removed successfully!");
+    } catch (error) {
+      console.error("Background removal error:", error);
+      toast.error("Failed to remove background. Please try again.");
+    } finally {
+      setIsRemovingBackground(false);
+    }
+  };
+
   const updateAdjustment = (key: keyof Adjustments, value: number[]) => {
     setAdjustments((prev) => ({ ...prev, [key]: value[0] }));
   };
@@ -225,6 +308,15 @@ export const ImageEditor = ({ imageUrl, alt, onClose }: ImageEditorProps) => {
       <div className="flex items-center justify-between p-4 border-b border-border bg-card">
         <h2 className="text-xl font-bold text-foreground">Image Editor</h2>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={removeBackground}
+            disabled={isRemovingBackground}
+          >
+            <Eraser className="h-4 w-4 mr-2" />
+            {isRemovingBackground ? "Removing..." : "Remove BG"}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleReset}>
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset
