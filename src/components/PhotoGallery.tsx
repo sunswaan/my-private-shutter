@@ -279,6 +279,7 @@ export const PhotoGallery = ({ refreshTrigger }: PhotoGalleryProps) => {
         <DialogContent className="max-w-full h-screen p-0 bg-background border-0 m-0">
           {editingPhoto && decryptedImages.get(editingPhoto.id) && (
             <ImageEditor
+              photoId={editingPhoto.id}
               imageUrl={decryptedImages.get(editingPhoto.id)!}
               alt={editingPhoto.title || "Photo"}
               onClose={() => setEditingPhoto(null)}
